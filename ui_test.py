@@ -7,30 +7,8 @@ from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 from PyQt5.QtCore import Qt, QPoint
 import numpy as np
 from PIL import Image, ImageOps
-
-# 定义与训练时相同的CNN模型
-class CNNModel(nn.Module):
-    def __init__(self):
-        super(CNNModel, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=5)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=5)
-        self.dropout1 = nn.Dropout2d(0.25)
-        self.dropout2 = nn.Dropout2d(0.5)
-        self.fc1 = nn.Linear(1024, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc1(x))
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+from torchvision import transforms
+from model import CNNModel
 
 # 绘图区域类
 class DrawingWidget(QWidget):
@@ -70,45 +48,50 @@ class DrawingWidget(QWidget):
         self.update()
 
     def get_image_data(self):
-        # 调整图像大小为28x28像素
-        resized_image = self.image.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        """获取图像数据并进行预处理，与训练时保持一致"""
+        # 将QImage转换为numpy数组
+        ptr = self.image.bits()
+        ptr.setsize(self.image.byteCount())
+        img_array = np.array(ptr).reshape(self.image.height(), self.image.width(), 4)
         
-        # 转换为灰度图像
-        converted_image = resized_image.convertToFormat(QImage.Format_Grayscale8)
+        # 取红色通道作为灰度值（因为我们用白色画笔在黑色背景上绘制）
+        gray_array = img_array[:, :, 0]
         
-        # 提取像素数据 - 改进的方法
-        width = converted_image.width()
-        height = converted_image.height()
-        pixels = []
+        # 转换为PIL图像
+        pil_img = Image.fromarray(gray_array, mode='L')
         
-        for y in range(height):
-            for x in range(width):
-                color = converted_image.pixelColor(x, y)
-                # 获取亮度值（对于灰度图像，红绿蓝值相同）
-                pixels.append(255 - color.red())  # 反转颜色以匹配MNIST格式
+        # 使用与predict.py相同的预处理流程
+        transform = transforms.Compose([
+            transforms.Resize((28, 28)),  # 调整大小为28x28
+            transforms.ToTensor(),        # 转换为张量，自动归一化到[0,1]
+            transforms.Normalize((0.1307,), (0.3081,))  # 使用MNIST标准化参数
+        ])
         
-        # 转换为numpy数组并重塑
-        pixel_array = np.array(pixels, dtype=np.float32)
-        pixel_array = pixel_array.reshape(28, 28)
+        # 应用变换
+        tensor = transform(pil_img)
         
-        # 归一化到[0,1]范围
-        pixel_array = pixel_array / 255.0
+        print(f"预处理后张量形状: {tensor.shape}")
+        print(f"预处理后张量范围: [{torch.min(tensor).item():.4f}, {torch.max(tensor).item():.4f}]")
+        print(f"预处理后张量均值: {torch.mean(tensor).item():.4f}, 标准差: {torch.std(tensor).item():.4f}")
         
-        # 应用与MNIST数据集相同的标准化
-        mean = 0.1307
-        std = 0.3081
-        pixel_array = (pixel_array - mean) / std
-        
-        # 转换为PyTorch张量并添加通道维度
-        tensor = torch.tensor(pixel_array, dtype=torch.float32).unsqueeze(0)
         return tensor
+
+    def save_current_image(self, filename="debug_image.png"):
+        """保存当前绘制的图像用于调试"""
+        ptr = self.image.bits()
+        ptr.setsize(self.image.byteCount())
+        img_array = np.array(ptr).reshape(self.image.height(), self.image.width(), 4)
+        gray_array = img_array[:, :, 0]
+        pil_img = Image.fromarray(gray_array, mode='L')
+        pil_img.save(filename)
+        print(f"调试图像已保存至: {filename}")
 
 # 主窗口类
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("手写数字识别")
-        self.setGeometry(100, 100, 400, 400)
+        self.setGeometry(100, 100, 450, 500)
         
         # 创建中央部件
         central_widget = QWidget()
@@ -117,6 +100,12 @@ class MainWindow(QMainWindow):
         # 创建布局
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
+        
+        # 添加说明标签
+        instruction_label = QLabel("在下方黑色区域用鼠标绘制数字 (0-9)")
+        instruction_label.setAlignment(Qt.AlignCenter)
+        instruction_label.setStyleSheet("font-size: 14px; margin: 10px;")
+        main_layout.addWidget(instruction_label)
         
         # 创建绘图区域
         self.drawing_widget = DrawingWidget()
@@ -128,55 +117,114 @@ class MainWindow(QMainWindow):
         # 创建识别按钮
         self.predict_button = QPushButton("识别数字")
         self.predict_button.clicked.connect(self.predict_digit)
+        self.predict_button.setStyleSheet("font-size: 14px; padding: 10px;")
         button_layout.addWidget(self.predict_button)
         
         # 创建清除按钮
         self.clear_button = QPushButton("清除")
         self.clear_button.clicked.connect(self.clear_canvas)
+        self.clear_button.setStyleSheet("font-size: 14px; padding: 10px;")
         button_layout.addWidget(self.clear_button)
+        
+        # 创建保存调试图像按钮
+        self.save_button = QPushButton("保存调试图像")
+        self.save_button.clicked.connect(self.save_debug_image)
+        self.save_button.setStyleSheet("font-size: 14px; padding: 10px;")
+        button_layout.addWidget(self.save_button)
         
         main_layout.addLayout(button_layout)
         
         # 创建结果显示标签
-        self.result_label = QLabel("请在上方区域绘制一个数字 (0-9)")
+        self.result_label = QLabel("请在上方区域绘制一个数字")
         self.result_label.setAlignment(Qt.AlignCenter)
-        self.result_label.setStyleSheet("font-size: 18px; font-weight: bold; color: blue;")
+        self.result_label.setStyleSheet("font-size: 18px; font-weight: bold; color: blue; margin: 20px;")
         main_layout.addWidget(self.result_label)
         
+        # 创建概率显示标签
+        self.prob_label = QLabel("")
+        self.prob_label.setAlignment(Qt.AlignCenter)
+        self.prob_label.setStyleSheet("font-size: 12px; margin: 10px;")
+        main_layout.addWidget(self.prob_label)
+        
         # 加载预训练模型
-        self.model = CNNModel()
+        self.model = None
+        self.load_model()
+
+    def load_model(self):
+        """加载预训练模型"""
         try:
+            self.model = CNNModel()
             self.model.load_state_dict(torch.load("cnn_model.pth", map_location=torch.device('cpu')))
             self.model.eval()
             print("模型加载成功")
+            self.result_label.setText("模型加载成功，请绘制数字")
         except Exception as e:
             print(f"模型加载失败: {e}")
             self.result_label.setText("模型加载失败，请确保cnn_model.pth文件存在")
+            self.model = None
 
     def predict_digit(self):
+        """预测绘制的数字"""
+        if self.model is None:
+            self.result_label.setText("模型未加载，无法进行预测")
+            return
+            
         # 获取图像数据
         image_tensor = self.drawing_widget.get_image_data()
         
         # 检查是否有实际绘制内容
-        if torch.sum(image_tensor) == 0:
+        # 由于标准化后的值可能为负，我们检查是否有显著变化
+        if torch.std(image_tensor).item() < 0.1:
             self.result_label.setText("请先绘制一个数字")
+            self.prob_label.setText("")
             return
             
         # 使用模型进行预测
         with torch.no_grad():
-            output = self.model(image_tensor.unsqueeze(0))  # 添加批次维度
-            probabilities = torch.exp(output)  # 转换为概率
-            prediction = output.argmax(dim=1, keepdim=True)
+            # 添加批次维度，使其形状为[1, 1, 28, 28]
+            input_tensor = image_tensor.unsqueeze(0)
+            print(f"模型输入张量形状: {input_tensor.shape}")
+            
+            # 获取模型输出
+            output = self.model(input_tensor)
+            print(f"模型原始输出: {output}")
+            
+            # 转换为概率分布
+            probabilities = torch.exp(output)  # 由于模型输出是log_softmax
+            print(f"概率分布: {probabilities}")
+            
+            # 获取预测结果
+            prediction = output.argmax(dim=1)
             confidence = torch.max(probabilities).item()
         
         # 显示结果
         digit = prediction.item()
-        self.result_label.setText(f"识别结果: {digit} (置信度: {confidence:.2f})")
-        print(f"识别结果: {digit}, 置信度: {confidence:.2f}")
+        self.result_label.setText(f"识别结果: {digit}")
+        
+        # 显示概率分布
+        probs = probabilities.cpu().numpy()[0]
+        prob_text = "概率分布:\n"
+        # 显示前3个最高概率
+        top3_indices = np.argsort(probs)[-3:][::-1]
+        for idx in top3_indices:
+            prob_text += f"数字 {idx}: {probs[idx]:.3f}\n"
+        self.prob_label.setText(prob_text)
+        
+        print(f"识别结果: {digit}, 最高概率: {confidence:.4f}")
+        print("完整概率分布:")
+        for i, prob in enumerate(probs):
+            print(f"  数字 {i}: {prob:.4f}")
+        print("-" * 50)
+
+    def save_debug_image(self):
+        """保存当前绘制的图像用于调试"""
+        self.drawing_widget.save_current_image()
 
     def clear_canvas(self):
+        """清除绘制内容"""
         self.drawing_widget.clear_image()
-        self.result_label.setText("请在上方区域绘制一个数字 (0-9)")
+        self.result_label.setText("请在上方区域绘制一个数字")
+        self.prob_label.setText("")
 
 # 主程序入口
 if __name__ == "__main__":
