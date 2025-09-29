@@ -2,7 +2,16 @@ import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QFrame,
+)
 from PyQt5.QtGui import QPainter, QPen, QPixmap, QImage
 from PyQt5.QtCore import Qt, QPoint
 import numpy as np
@@ -91,61 +100,153 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("手写数字识别")
-        self.setGeometry(100, 100, 450, 500)
-        
-        # 创建中央部件
+        self.setMinimumSize(760, 540)
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # 创建布局
+
+        self.setStyleSheet(
+            """
+            QMainWindow {
+                background-color: #1f1f24;
+                color: #f5f5f7;
+            }
+            QLabel {
+                color: #f5f5f7;
+            }
+            QPushButton {
+                background-color: #5560ff;
+                color: #ffffff;
+                border-radius: 6px;
+                padding: 10px 18px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #6b73ff;
+            }
+            QPushButton:pressed {
+                background-color: #3c44d4;
+            }
+            """
+        )
+
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(18)
         central_widget.setLayout(main_layout)
-        
-        # 添加说明标签
-        instruction_label = QLabel("在下方黑色区域用鼠标绘制数字 (0-9)")
-        instruction_label.setAlignment(Qt.AlignCenter)
-        instruction_label.setStyleSheet("font-size: 14px; margin: 10px;")
-        main_layout.addWidget(instruction_label)
-        
-        # 创建绘图区域
+
+        title_label = QLabel("手写数字识别助手")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 24px; font-weight: 600; letter-spacing: 1px;")
+        main_layout.addWidget(title_label)
+
+        subtitle_label = QLabel("在画布中写下 0-9 的任意数字，然后点击“识别数字”查看预测结果")
+        subtitle_label.setAlignment(Qt.AlignCenter)
+        subtitle_label.setStyleSheet("font-size: 13px; color: #b0b0c5;")
+        main_layout.addWidget(subtitle_label)
+
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(24)
+        main_layout.addLayout(content_layout)
+
+        canvas_card = QFrame()
+        canvas_card.setObjectName("canvasCard")
+        canvas_card.setStyleSheet(
+            """
+            QFrame#canvasCard {
+                background-color: #272731;
+                border-radius: 16px;
+            }
+            """
+        )
+        canvas_layout = QVBoxLayout()
+        canvas_layout.setContentsMargins(20, 20, 20, 20)
+        canvas_layout.setSpacing(16)
+        canvas_card.setLayout(canvas_layout)
+
+        canvas_title = QLabel("绘图区域")
+        canvas_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        canvas_layout.addWidget(canvas_title)
+
         self.drawing_widget = DrawingWidget()
-        main_layout.addWidget(self.drawing_widget)
-        
-        # 创建按钮布局
+        self.drawing_widget.setStyleSheet(
+            "border: 1px dashed #3b3b4a; border-radius: 8px; background-color: #000000;"
+        )
+        canvas_layout.addWidget(self.drawing_widget, alignment=Qt.AlignCenter)
+
         button_layout = QHBoxLayout()
-        
-        # 创建识别按钮
+        button_layout.setSpacing(12)
+        button_layout.addStretch(1)
+
         self.predict_button = QPushButton("识别数字")
         self.predict_button.clicked.connect(self.predict_digit)
-        self.predict_button.setStyleSheet("font-size: 14px; padding: 10px;")
         button_layout.addWidget(self.predict_button)
-        
-        # 创建清除按钮
-        self.clear_button = QPushButton("清除")
+
+        self.clear_button = QPushButton("清空画布")
         self.clear_button.clicked.connect(self.clear_canvas)
-        self.clear_button.setStyleSheet("font-size: 14px; padding: 10px;")
         button_layout.addWidget(self.clear_button)
-        
-        # 创建保存调试图像按钮
+
         self.save_button = QPushButton("保存调试图像")
         self.save_button.clicked.connect(self.save_debug_image)
-        self.save_button.setStyleSheet("font-size: 14px; padding: 10px;")
         button_layout.addWidget(self.save_button)
-        
-        main_layout.addLayout(button_layout)
-        
-        # 创建结果显示标签
-        self.result_label = QLabel("请在上方区域绘制一个数字")
+
+        button_layout.addStretch(1)
+
+        canvas_layout.addLayout(button_layout)
+        content_layout.addWidget(canvas_card, 1)
+
+        info_card = QFrame()
+        info_card.setObjectName("infoCard")
+        info_card.setStyleSheet(
+            """
+            QFrame#infoCard {
+                background-color: #272731;
+                border-radius: 16px;
+            }
+            """
+        )
+        info_layout = QVBoxLayout()
+        info_layout.setContentsMargins(20, 20, 20, 20)
+        info_layout.setSpacing(16)
+        info_card.setLayout(info_layout)
+
+        status_title = QLabel("识别状态")
+        status_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        info_layout.addWidget(status_title)
+
+        self.status_label = QLabel("模型加载中……")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("font-size: 13px; color: #b0b0c5;")
+        info_layout.addWidget(self.status_label)
+
+        result_title = QLabel("预测结果")
+        result_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        info_layout.addWidget(result_title)
+
+        self.result_label = QLabel("—")
         self.result_label.setAlignment(Qt.AlignCenter)
-        self.result_label.setStyleSheet("font-size: 18px; font-weight: bold; color: blue; margin: 20px;")
-        main_layout.addWidget(self.result_label)
-        
-        # 创建概率显示标签
-        self.prob_label = QLabel("")
-        self.prob_label.setAlignment(Qt.AlignCenter)
-        self.prob_label.setStyleSheet("font-size: 12px; margin: 10px;")
-        main_layout.addWidget(self.prob_label)
-        
+        self.result_label.setStyleSheet("font-size: 48px; font-weight: 700; color: #7f89ff;")
+        info_layout.addWidget(self.result_label)
+
+        self.confidence_label = QLabel("准备绘制数字")
+        self.confidence_label.setWordWrap(True)
+        self.confidence_label.setStyleSheet("font-size: 13px; color: #b0b0c5;")
+        info_layout.addWidget(self.confidence_label)
+
+        prob_title = QLabel("Top 3 置信度")
+        prob_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        info_layout.addWidget(prob_title)
+
+        self.prob_label = QLabel("等待输入……")
+        self.prob_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.prob_label.setTextFormat(Qt.RichText)
+        self.prob_label.setWordWrap(True)
+        self.prob_label.setStyleSheet("font-size: 13px; color: #d9d9e1;")
+        info_layout.addWidget(self.prob_label)
+
+        info_layout.addStretch(1)
+        content_layout.addWidget(info_card, 1)
+
         # 加载预训练模型
         self.model = None
         self.load_model()
@@ -157,16 +258,22 @@ class MainWindow(QMainWindow):
             self.model.load_state_dict(torch.load("cnn_model.pth", map_location=torch.device('cpu')))
             self.model.eval()
             print("模型加载成功")
-            self.result_label.setText("模型加载成功，请绘制数字")
+            self.status_label.setText("模型加载成功，开始在左侧画布绘制数字吧！")
+            self.result_label.setText("—")
+            self.confidence_label.setText("在画布中写下 0-9 的任意数字，然后点击“识别数字”。")
+            self.prob_label.setText("等待输入……")
         except Exception as e:
             print(f"模型加载失败: {e}")
-            self.result_label.setText("模型加载失败，请确保cnn_model.pth文件存在")
+            self.status_label.setText("模型加载失败，请确保 cnn_model.pth 文件存在")
+            self.result_label.setText("!")
+            self.confidence_label.setText("模型未就绪，暂时无法识别。")
             self.model = None
 
     def predict_digit(self):
         """预测绘制的数字"""
         if self.model is None:
-            self.result_label.setText("模型未加载，无法进行预测")
+            self.status_label.setText("模型未加载，无法进行预测")
+            self.confidence_label.setText("请先加载模型后再尝试。")
             return
             
         # 获取图像数据
@@ -175,11 +282,14 @@ class MainWindow(QMainWindow):
         # 检查是否有实际绘制内容
         # 由于标准化后的值可能为负，我们检查是否有显著变化
         if torch.std(image_tensor).item() < 0.1:
-            self.result_label.setText("请先绘制一个数字")
-            self.prob_label.setText("")
+            self.status_label.setText("画布中尚未检测到有效笔迹")
+            self.result_label.setText("—")
+            self.confidence_label.setText("请在左侧画布绘制一个清晰的数字。")
+            self.prob_label.setText("等待输入……")
             return
             
         # 使用模型进行预测
+        self.status_label.setText("正在识别……")
         with torch.no_grad():
             # 添加批次维度，使其形状为[1, 1, 28, 28]
             input_tensor = image_tensor.unsqueeze(0)
@@ -199,16 +309,27 @@ class MainWindow(QMainWindow):
         
         # 显示结果
         digit = prediction.item()
-        self.result_label.setText(f"识别结果: {digit}")
+        self.result_label.setText(str(digit))
+        self.status_label.setText("识别完成")
+        self.confidence_label.setText(f"最高置信度：{confidence:.1%}")
         
         # 显示概率分布
         probs = probabilities.cpu().numpy()[0]
-        prob_text = "概率分布:\n"
-        # 显示前3个最高概率
         top3_indices = np.argsort(probs)[-3:][::-1]
+        rows = []
         for idx in top3_indices:
-            prob_text += f"数字 {idx}: {probs[idx]:.3f}\n"
-        self.prob_label.setText(prob_text)
+            rows.append(
+                f"<tr>"
+                f"<td style='padding:4px 24px 4px 0; color:#b0b0c5;'>数字 {idx}</td>"
+                f"<td style='padding:4px 0; color:#f5f5f7;'>{probs[idx]:.1%}</td>"
+                f"</tr>"
+            )
+        table_html = (
+            "<table style='border-collapse:collapse; font-size:13px;'>"
+            + "".join(rows)
+            + "</table>"
+        )
+        self.prob_label.setText(table_html)
         
         print(f"识别结果: {digit}, 最高概率: {confidence:.4f}")
         print("完整概率分布:")
@@ -219,12 +340,15 @@ class MainWindow(QMainWindow):
     def save_debug_image(self):
         """保存当前绘制的图像用于调试"""
         self.drawing_widget.save_current_image()
+        self.status_label.setText("调试图像已保存（debug_image.png）")
 
     def clear_canvas(self):
         """清除绘制内容"""
         self.drawing_widget.clear_image()
-        self.result_label.setText("请在上方区域绘制一个数字")
-        self.prob_label.setText("")
+        self.result_label.setText("—")
+        self.status_label.setText("画布已清空，重新绘制一个数字吧！")
+        self.confidence_label.setText("准备绘制数字")
+        self.prob_label.setText("等待输入……")
 
 # 主程序入口
 if __name__ == "__main__":
